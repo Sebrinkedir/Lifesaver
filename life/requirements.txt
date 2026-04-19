@@ -1,0 +1,13 @@
+# requirements.txt
+# LifeSaver - Multi-Agent Python Code Review System
+
+# ── Core Framework ──────────────────────────────
+crewai==1.9.3
+crewai[litellm]
+
+# ── Security Scanner ────────────────────────────
+bandit==1.7.10
+
+# ── Utilities ───────────────────────────────────
+python-dotenv==1.1.1
+litellm
