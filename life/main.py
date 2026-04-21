@@ -1,111 +1,51 @@
 from crewai import Crew, Process
 from agents import security_agent, performance_agent, logic_agent
-from tasks import create_tasks
-from arbitration import (
-    parse_findings,
-    calculate_was,
-    calculate_reliability,
-    print_report
-)
-
-# ── Reliability Tracking ─────────────────────────
-# These track consistency across multiple runs
-consistent_runs = 0
-total_runs      = 0
+from tasks import create_all_tasks
 
 
-def review_code(code: str) -> None:
-    """
-    Main function that runs LifeSaver on a Python code snippet.
-    1. Creates tasks for all three agents
-    2. Runs the crew sequentially
-    3. Parses findings from each agent
-    4. Calculates WAS and Reliability Score
-    5. Prints the final report
-    """
-    global consistent_runs, total_runs
+def get_user_code():
+    print("\nPaste Python code (end with empty line):\n")
 
-    print("\n" + "="*60)
-    print("         LIFESAVER - STARTING CODE REVIEW")
-    print("="*60)
-    print("\n📥 Code received. Starting agent analysis...\n")
+    lines = []
+    while True:
+        line = input()
+        if line.strip() == "":
+            break
+        lines.append(line)
 
-    # Step 1 - Create tasks for this code
-    tasks = create_tasks(code)
+    return "\n".join(lines)
 
-    # Step 2 - Build the crew
+
+def run_review(code: str):
+    tasks = create_all_tasks(code)
+
     crew = Crew(
-        agents=[
-            security_agent,
-            performance_agent,
-            logic_agent
-        ],
+        agents=[security_agent, logic_agent, performance_agent],
         tasks=tasks,
-        process=Process.sequential,
-        verbose=True
+        process=Process.sequential
     )
 
-    # Step 3 - Run the crew
-    result = crew.kickoff()
-
-    # Step 4 - Get output from each agent task
-    security_output    = tasks[0].output.raw if tasks[0].output else ""
-    performance_output = tasks[1].output.raw if tasks[1].output else ""
-    logic_output       = tasks[2].output.raw if tasks[2].output else ""
-
-    # Step 5 - Parse findings from each agent
-    all_findings = []
-
-    security_findings = parse_findings(
-        security_output, "security"
-    )
-    performance_findings = parse_findings(
-        performance_output, "performance"
-    )
-    logic_findings = parse_findings(
-        logic_output, "logic"
-    )
-
-    all_findings.extend(security_findings)
-    all_findings.extend(performance_findings)
-    all_findings.extend(logic_findings)
-
-    # Step 6 - Calculate WAS for all findings
-    was_results = calculate_was(all_findings)
-
-    # Step 7 - Update reliability tracking
-    total_runs += 1
-    if was_results:
-        consistent_runs += 1
-
-    # Step 8 - Calculate Reliability Score
-    reliability = calculate_reliability(
-        consistent_runs,
-        total_runs
-    )
-
-    # Step 9 - Print final report
-    print_report(was_results, reliability)
+    return crew.kickoff()
 
 
-# ── Entry Point ──────────────────────────────────
+def main():
+    print("\n==============================")
+    print("     LIFESAVER CODE REVIEW")
+    print("==============================\n")
+
+    code = get_user_code()
+
+    if not code.strip():
+        print("No code provided.")
+        return
+
+    print("\nRunning analysis...\n")
+
+    result = run_review(code)
+
+    print("\n================ FINAL OUTPUT ================\n")
+    print(result)
+
+
 if __name__ == "__main__":
-
-    # Example test code with known issues
-    test_code = """
-import os
-import subprocess
-
-password = "58dph"
-
-def calculate(x, y):
-    result = x / y
-    return result
-
-def run_command(cmd):
-    os.system(cmd)
-
-subprocess.call("rm -rf /", shell=True)
-"""
-
-    review_code(test_code)
+    main()

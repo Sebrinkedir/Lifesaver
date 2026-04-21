@@ -74,3 +74,11 @@ logic_agent = Agent(
     allow_delegation=False,
     max_iter=3
 )
+
+from crewai import Crew, Process
+
+crew = Crew(
+    agents=[security_agent, performance_agent, logic_agent],
+    process=Process.sequential,
+    verbose=True
+)
