@@ -295,7 +295,6 @@ Eventually, we want LifeSaver to be a **production-ready code review system** th
 - **Ollama** – Local LLM inference
 - **Research Community** – AutoGen, METRA, CodeReviewer, and ReAct pioneers
 
----
-
+Sebrina — BSc Computer Science Peter — BSc Computer Science Sujit — BSc Computer Science Hamza — BSc Computer Science
 
 Last Updated: May 2025
