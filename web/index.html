@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LifeSaver — Multi-Agent Code Review</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">LS</span>
+      <div>
+        <h1>LifeSaver</h1>
+        <p class="tagline">Multi-Agent Code Review &middot; Security &middot; Performance &middot; Logic</p>
+      </div>
+    </div>
+    <div class="status" id="connStatus">connecting&hellip;</div>
+  </header>
+
+  <main id="chat" class="chat" aria-live="polite">
+    <div class="bubble system intro">
+      <p>Welcome. Type a scan command in the box below &mdash; for example:</p>
+      <pre class="cmd-example">python main.py test_php.php</pre>
+      <p class="muted">The 3 agents run sequentially. Each agent appears as its own message with findings and confidence rings.</p>
+    </div>
+  </main>
+
+  <form id="composer" class="composer" autocomplete="off">
+    <input
+      id="cmdInput"
+      class="cmd-input"
+      type="text"
+      placeholder="python main.py test_php.php"
+      spellcheck="false"
+      autofocus
+    />
+    <button id="sendBtn" type="submit" class="send-btn" aria-label="Send">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <path fill="currentColor" d="M3.4 20.4 22 12 3.4 3.6 3.4 10 17 12 3.4 14z" />
+      </svg>
+    </button>
+  </form>
+
+  <script src="/static/jspdf.umd.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
