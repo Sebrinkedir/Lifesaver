@@ -9,9 +9,7 @@ LANGUAGE_SIGNATURES = {
     "Python":     ["def ", "import ", "print("],
     "Go":         ["func ", "package ", "import \""],
     "Ruby":       ["def ", "end", "puts "],
-    # C++ uses std::/iostream/namespace — none of which appear in real C.
     "C++":        ["#include", "std::", "int main(", "iostream", "namespace "],
-    # C uses printf/malloc/struct heavily and never has std:: or iostream.
     "C":          ["#include", "printf(", "malloc(", "struct ", "void ", "char *"],
     "JavaScript": ["function ", "const ", "let ", "var ", "=>"],
 }
@@ -85,7 +83,7 @@ def create_tasks(code: str):
 
     fmt = (
         "ISSUE: [clear description]\n"
-        "SEVERITY: HIGH or MEDIUM or LOW\n"
+        "SEVERITY: Critical or Moderate or Minor\n"
         "CONFIDENCE: [0.0 to 1.0]\n"
         "LINE: [line number]\n"
         "REASON: [why this is a problem]\n"

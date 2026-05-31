@@ -2,35 +2,48 @@ import json
 import re
 
 SEVERITY_WEIGHTS = {
-    "HIGH":   1.0,
-    "MEDIUM": 0.6,
-    "LOW":    0.3
+    "CRITICAL": 1.0,
+    "MODERATE": 0.6,
+    "MINOR":    0.2,
 }
+
+SEVERITY_ALIASES = {
+    "HIGH":   "CRITICAL",
+    "MEDIUM": "MODERATE",
+    "LOW":    "MINOR",
+}
+
+
+def _canon_severity(value) -> str:
+    s = str(value or "").strip().upper()
+    s = SEVERITY_ALIASES.get(s, s)
+    return s if s in SEVERITY_WEIGHTS else "MODERATE"
+
+AGENT_WEIGHTS = {
+    "security":    0.5,
+    "performance": 0.3,
+    "logic":       0.2,
+}
+
+BANDIT_BONUS = 0.15
 
 LABELS = "ISSUE|SEVERITY|CONFIDENCE|LINE|REASON"
 
 
 def clean_output(text: str) -> str:
-    # Well-formed reasoning blocks (deepseek-r1 emits <think>...</think>).
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL | re.IGNORECASE)
 
-    # Dangling opener with no close (model truncated mid-thought by max_iter):
-    # drop everything from the open tag to the end.
     text = re.sub(r'<think(?:ing)?>.*$', '', text, flags=re.DOTALL | re.IGNORECASE)
 
-    # Dangling close with no opener (output captured mid-thought):
-    # drop everything up to and including it.
     text = re.sub(r'^.*?</think(?:ing)?>', '', text, flags=re.DOTALL | re.IGNORECASE)
 
-    # Markdown code fences.
     text = re.sub(r'```[a-zA-Z]*', '', text)
     text = text.replace('```', '')
     return text.strip()
 
 
 def parse_confidence(block: str, severity: str) -> float:
-    # Numeric: 0.9, .9, 1, 1.0, 0.85
     m = re.search(r'CONFIDENCE:\s*([01]?\.\d+|[01](?:\.0+)?)', block, re.IGNORECASE)
     if m:
         try:
@@ -38,32 +51,26 @@ def parse_confidence(block: str, severity: str) -> float:
         except ValueError:
             pass
 
-    # Percentage: "90%" or "90 percent"
     m = re.search(r'CONFIDENCE:\s*(\d{1,3})\s*(?:%|percent)', block, re.IGNORECASE)
     if m:
         return max(0.0, min(1.0, int(m.group(1)) / 100.0))
 
-    # Word: HIGH / MEDIUM / LOW
-    m = re.search(r'CONFIDENCE:\s*(HIGH|MEDIUM|LOW)', block, re.IGNORECASE)
+    m = re.search(
+        r'CONFIDENCE:\s*(CRITICAL|MODERATE|MINOR|HIGH|MEDIUM|LOW)',
+        block, re.IGNORECASE,
+    )
     if m:
-        return SEVERITY_WEIGHTS.get(m.group(1).upper(), 0.6)
+        return SEVERITY_WEIGHTS.get(_canon_severity(m.group(1)), 0.6)
 
-    # Bare integer the model forgot to normalise, e.g. "CONFIDENCE: 85"
     m = re.search(r'CONFIDENCE:\s*(\d{1,3})\b', block, re.IGNORECASE)
     if m:
         v = int(m.group(1))
         return float(v) if v <= 1 else max(0.0, min(1.0, v / 100.0))
 
-    # Nothing parseable: fall back to the severity weight so a real
-    # finding is not silently dropped just because the model phrased
-    # confidence in an unexpected way.
     return SEVERITY_WEIGHTS.get(severity.upper(), 0.6)
 
 
 def normalize_labels(text: str) -> str:
-    # Prepend a newline so each label starts its own line; otherwise the
-    # leading \s* can swallow the newline between a value and the next
-    # label, bleeding the previous field's text into it.
     return re.sub(
         r'[*_`]{0,3}[ \t]*\n?[ \t]*(' + LABELS + r')\s*[*_`]{0,3}\s*:',
         lambda m: '\n' + m.group(1).upper() + ':',
@@ -73,12 +80,10 @@ def normalize_labels(text: str) -> str:
 
 
 def _normalize_severity(value) -> str:
-    sev = str(value).strip().upper()
-    return sev if sev in SEVERITY_WEIGHTS else "MEDIUM"
+    return _canon_severity(value)
 
 
 def coerce_json_findings(text: str, agent_type: str) -> list:
-    # Some models (e.g. llama3.1) ignore the line format and emit JSON.
     for opener, closer in (("{", "}"), ("[", "]")):
         i = text.find(opener)
         j = text.rfind(closer)
@@ -128,9 +133,6 @@ def coerce_json_findings(text: str, agent_type: str) -> list:
     return []
 
 
-# Models sometimes report the ABSENCE of an issue in the finding format
-# ("Path traversal is not present in this code"). Those are noise, not
-# findings — drop them before scoring.
 NEGATIVE_PATTERNS = [
     re.compile(p, re.IGNORECASE) for p in (
         r'\bnot present\b',
@@ -145,9 +147,6 @@ NEGATIVE_PATTERNS = [
     )
 ]
 
-# Swiss-Cheese design requires each agent to stay in its lane. Small models
-# leak across domains, so a finding is kept only if it looks in-domain for
-# the agent that produced it (ambiguous findings are kept, not lost).
 DOMAIN_KEYWORDS = {
     "security": (
         "sql injection", "command injection", "shell injection",
@@ -179,6 +178,8 @@ def is_negative_finding(finding: dict) -> bool:
 
 
 def in_agent_lane(finding: dict, agent_type: str) -> bool:
+    if agent_type not in DOMAIN_KEYWORDS:
+        return True
     text = f"{finding.get('description', '')} {finding.get('reason', '')}".lower()
     domains = {
         d for d, kws in DOMAIN_KEYWORDS.items()
@@ -211,9 +212,6 @@ _NO_REASON = {"", "no details"}
 
 
 def is_actionable(finding: dict) -> bool:
-    # Models often append a "Summary of Issues" recap that repeats each
-    # finding WITHOUT a line or reason. Such entries carry no evidence and
-    # are pure duplicates — drop them.
     line = str(finding.get("line", "")).strip().lower()
     reason = str(finding.get("reason", "")).strip().lower()
     return not (line in _NO_LINE and reason in _NO_REASON)
@@ -237,16 +235,10 @@ def parse_findings(agent_output: str, agent_type: str) -> list:
 
     cleaned_text = clean_output(agent_output)
 
-    # 1. JSON-style output (model ignored the line format entirely).
     json_findings = coerce_json_findings(cleaned_text, agent_type)
     if json_findings:
         return _postprocess(json_findings, agent_type)
 
-    # 2. Line / markdown format. Note: NO early-return on
-    #    "NO ... ISSUES FOUND" — some models append that sentinel AFTER a
-    #    full list of real findings, and a substring check would wrongly
-    #    discard them. If there genuinely are no findings, no ISSUE: block
-    #    matches and the result is empty anyway.
     cleaned_text = normalize_labels(cleaned_text)
 
     blocks = re.findall(
@@ -259,13 +251,16 @@ def parse_findings(agent_output: str, agent_type: str) -> list:
         if not block.strip():
             continue
 
-        issue_match  = re.search(r'ISSUE:\s*(.+)',              block, re.IGNORECASE)
-        sev_match    = re.search(r'SEVERITY:\s*(HIGH|MEDIUM|LOW)', block, re.IGNORECASE)
-        line_match   = re.search(r'LINE:\s*(\d+)',              block, re.IGNORECASE)
-        reason_match = re.search(r'REASON:\s*(.+)',             block, re.IGNORECASE)
+        issue_match  = re.search(r'ISSUE:\s*(.+)', block, re.IGNORECASE)
+        sev_match    = re.search(
+            r'SEVERITY:\s*(CRITICAL|MODERATE|MINOR|HIGH|MEDIUM|LOW)',
+            block, re.IGNORECASE,
+        )
+        line_match   = re.search(r'LINE:\s*(\d+)',  block, re.IGNORECASE)
+        reason_match = re.search(r'REASON:\s*(.+)', block, re.IGNORECASE)
 
         if issue_match and sev_match:
-            severity = sev_match.group(1).upper()
+            severity = _canon_severity(sev_match.group(1))
             findings.append({
                 "description": issue_match.group(1).strip(),
                 "severity":    severity,
@@ -279,16 +274,43 @@ def parse_findings(agent_output: str, agent_type: str) -> list:
 
 
 def calculate_was(findings_list: list) -> list:
+    """Compute the Weighted Agreement Score per finding.
+
+    Proposal formula:
+
+        WAS(i) = sum( wa * Sa * Ca )  /  sum( wa )
+
+    For a single-agent finding (the common case in this pipeline because
+    findings are kept per-agent rather than merged across agents), the
+    sum collapses to one term and wa cancels:
+
+        WAS = Sa * Ca
+
+    The +0.15 Bandit bonus is then added for findings from the Security
+    agent (which integrates Bandit on Python code), and the result is
+    clamped to [0, 1].
+    """
     if not findings_list:
         return []
 
     results = []
     for finding in findings_list:
-        severity   = finding.get("severity", "LOW")
-        confidence = finding.get("confidence", 0.5)
+        severity   = str(finding.get("severity", "LOW")).upper()
+        try:
+            confidence = float(finding.get("confidence", 0.5))
+        except (TypeError, ValueError):
+            confidence = 0.5
         agent_type = finding.get("agent", "security")
-        Si         = SEVERITY_WEIGHTS.get(severity, 0.3)
-        was_score  = round(confidence, 2)
+
+        Sa = SEVERITY_WEIGHTS.get(severity, 0.3)
+        Ca = max(0.0, min(1.0, confidence))
+        wa = AGENT_WEIGHTS.get(agent_type, 0.3)  # noqa: F841
+
+        was_score = Sa * Ca
+        if agent_type == "security":
+            was_score += BANDIT_BONUS
+
+        was_score = round(max(0.0, min(1.0, was_score)), 2)
 
         results.append({
             "description": finding.get("description", "Unknown"),
@@ -297,7 +319,7 @@ def calculate_was(findings_list: list) -> list:
             "line":        finding.get("line", "Unknown"),
             "reason":      finding.get("reason", ""),
             "agent":       agent_type,
-            "WAS":         was_score
+            "WAS":         was_score,
         })
 
     results.sort(key=lambda x: x["WAS"], reverse=True)

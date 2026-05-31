@@ -1,0 +1,60 @@
+{
+  "judge_model": "ollama/llama3.1:8b",
+  "fixtures": [
+    {
+      "fixture": "test_java.java",
+      "language": "Java",
+      "runs": 2,
+      "findings_per_run": 9,
+      "avg_tp": 5,
+      "avg_fp": 4,
+      "avg_fn": 6,
+      "precision": 0.5555555555555556,
+      "recall": 0.45454545454545453,
+      "f1": 0.5,
+      "fpr": 0.4444444444444444,
+      "consistency": 1.0
+    },
+    {
+      "fixture": "test_c.c",
+      "language": "C",
+      "runs": 2,
+      "findings_per_run": 10.5,
+      "avg_tp": 3,
+      "avg_fp": 7.5,
+      "avg_fn": 10,
+      "precision": 0.2857142857142857,
+      "recall": 0.23076923076923078,
+      "f1": 0.25531914893617025,
+      "fpr": 0.7142857142857143,
+      "consistency": 0.9635784320457659
+    },
+    {
+      "fixture": "test_go.go",
+      "language": "Go",
+      "runs": 2,
+      "findings_per_run": 12,
+      "avg_tp": 5.5,
+      "avg_fp": 6.5,
+      "avg_fn": 6,
+      "precision": 0.4583333333333333,
+      "recall": 0.4782608695652174,
+      "f1": 0.4680851063829787,
+      "fpr": 0.5416666666666666,
+      "consistency": 0.9375
+    }
+  ],
+  "aggregate": {
+    "wF1": 0.40628166160081053,
+    "avg_fpr": 0.5667989417989417,
+    "avg_cons": 0.9670261440152553,
+    "alpha": 0.3333333333333333,
+    "beta": 0.3333333333333333,
+    "gamma": 0.3333333333333333,
+    "R": 0.6021696212723746
+  },
+  "alpha": 0.3333333333333333,
+  "beta": 0.3333333333333333,
+  "gamma": 0.3333333333333333,
+  "runs": 2
+}

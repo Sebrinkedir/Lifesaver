@@ -1,4 +1,3 @@
-/* LifeSaver web UI — ChatGPT-inspired dark theme */
 
 :root {
   --bg:           #212121;
@@ -37,7 +36,6 @@ body {
   flex-direction: column;
 }
 
-/* ---------- top bar ---------- */
 .topbar {
   display: flex;
   align-items: center;
@@ -90,7 +88,6 @@ body {
 .status.ok { color: var(--accent); }
 .status.err { color: var(--high); }
 
-/* ---------- chat scroll ---------- */
 .chat {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -103,7 +100,6 @@ body {
   margin: 0 auto;
 }
 
-/* ---------- bubbles ---------- */
 .bubble {
   background: var(--bg-elev);
   border: 1px solid var(--border);
@@ -156,7 +152,6 @@ body {
 
 .muted { color: var(--text-muted); font-size: 13px; margin: 4px 0 0; }
 
-/* ---------- scan start card ---------- */
 .scan-meta {
   display: grid;
   grid-template-columns: auto auto auto;
@@ -181,7 +176,6 @@ body {
   font-weight: 600;
 }
 
-/* ---------- thinking indicator ---------- */
 .thinking {
   display: inline-flex;
   align-items: center;
@@ -211,7 +205,6 @@ body {
   40% { opacity: 1; }
 }
 
-/* ---------- finding cards ---------- */
 .findings {
   display: flex;
   flex-direction: column;
@@ -287,13 +280,15 @@ body {
   text-transform: uppercase;
 }
 
-.sev.HIGH   { background: rgba(239,68,68,0.15);  color: var(--high); }
-.sev.MEDIUM { background: rgba(245,158,11,0.15); color: var(--medium); }
-.sev.LOW    { background: rgba(16,185,129,0.15); color: var(--low); }
+.sev.CRITICAL,
+.sev.HIGH       { background: rgba(239,68,68,0.15);  color: var(--high); }
+.sev.MODERATE,
+.sev.MEDIUM     { background: rgba(245,158,11,0.15); color: var(--medium); }
+.sev.MINOR,
+.sev.LOW        { background: rgba(16,185,129,0.15); color: var(--low); }
 
 .empty-row { color: var(--text-muted); font-size: 13px; padding: 8px 4px; }
 
-/* ---------- final summary ---------- */
 .summary {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -340,7 +335,6 @@ body {
 .summary .reliability .label { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
 .summary .reliability .value { font-size: 18px; font-weight: 700; }
 
-/* ---------- composer ---------- */
 .composer {
   border-top: 1px solid var(--border);
   background: var(--bg-elev);
@@ -403,7 +397,6 @@ pre {
   border-color: rgba(16,163,127,0.35);
 }
 
-/* ---------- awaiting-questions / Next button ---------- */
 .bubble.awaiting {
   background: var(--bg-card);
   border-style: dashed;
@@ -436,7 +429,6 @@ pre {
 .next-btn:hover   { opacity: 0.9; }
 .next-btn:active  { transform: translateY(1px); }
 
-/* ---------- assistant reply bubbles ---------- */
 .bubble.reply {
   background: var(--bg-elev);
 }

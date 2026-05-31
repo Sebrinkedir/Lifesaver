@@ -1,0 +1,19 @@
+cd C:\Users\noone\Desktop\life
+.venv\Scripts\activate
+
+ollama serve 
+
+ollama run llama3.2
+ 
+ollama run qwen2.5-coder:7b
+
+ollama run phi4-mini
+
+python main.py
+
+uvicorn web.server:app --reload --host 127.0.0.1 --port 8765
+
+
+python main.py test_php.php --single
+
+

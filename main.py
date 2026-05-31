@@ -6,11 +6,6 @@ import sys
 
 @contextlib.contextmanager
 def _suppress_console_output():
-    # With verbose=False the only thing crew.kickoff() writes to the console
-    # is CrewAI's non-fatal event-bus warnings ("[CrewAIEventsBus] Warning:
-    # Event pairing mismatch..."), which rich wraps across several lines.
-    # Discard stdout/stderr for the duration; genuine failures raise
-    # exceptions and are reported by the caller with the streams restored.
     sink = io.StringIO()
     old_out, old_err = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = sink, sink
@@ -51,11 +46,20 @@ consistent_runs = 0
 total_runs      = 0
 
 
-def review_code(code: str, debug: bool = False) -> None:
+def review_code(code: str, debug: bool = False,
+                no_arbitration: bool = False) -> None:
+    """Full 3-agent LifeSaver review.
+
+    When `no_arbitration` is True the WAS-threshold filter is skipped —
+    all findings are kept regardless of score. This is the proposal's
+    "multi-agent without formal arbitration" baseline.
+    """
     global consistent_runs, total_runs
 
     print("=" * 60)
-    print("     LIFESAVER - STARTING CODE REVIEW")
+    mode_label = ("STARTING CODE REVIEW (no arbitration baseline)"
+                  if no_arbitration else "STARTING CODE REVIEW")
+    print(f"     LIFESAVER - {mode_label}")
     print("=" * 60)
 
     if not code or not code.strip():
@@ -126,10 +130,14 @@ def review_code(code: str, debug: bool = False) -> None:
         print(f"  Logic       : {len(logic_findings)} finding(s)")
         print(f"  Total       : {len(all_findings)} finding(s)")
 
-        was_results      = calculate_was(all_findings)
-        filtered_results = filter_findings(was_results)
-
-        print(f"  After WAS filter (>=0.6): {len(filtered_results)} kept")
+        was_results = calculate_was(all_findings)
+        if no_arbitration:
+            filtered_results = was_results
+            print(f"  WAS filter SKIPPED (no-arbitration baseline): "
+                  f"all {len(filtered_results)} findings kept")
+        else:
+            filtered_results = filter_findings(was_results)
+            print(f"  After WAS filter (>=0.6): {len(filtered_results)} kept")
 
         total_runs += 1
         if filtered_results:
@@ -165,17 +173,97 @@ def list_available_test_files() -> list:
     )
 
 
+def review_code_single(code: str, debug: bool = False) -> None:
+    """Single-agent baseline review. Uses one model (qwen2.5-coder by
+    default; see single_agent.SINGLE_MODEL) to find all issue categories
+    at once. Used to compare against the 3-agent pipeline in the paper."""
+    global consistent_runs, total_runs
+
+    from single_agent import scan_single, SINGLE_MODEL
+
+    print("=" * 60)
+    print(f"     LIFESAVER - SINGLE-AGENT BASELINE ({SINGLE_MODEL})")
+    print("=" * 60)
+
+    if not code or not code.strip():
+        print("ERROR: No code provided.")
+        return
+
+    language = detect_language(code)
+    print(f"Lines    : {len(code.strip().splitlines())}")
+    print(f"Language : {language}")
+    print(f"Mode     : SINGLE-AGENT (baseline)")
+    print()
+
+    if not debug:
+        _silence_crewai_noise()
+
+    try:
+        kept = scan_single(code, language=language, debug=debug)
+
+        print(f"Results:")
+        print(f"  Findings (post WAS >= 0.6): {len(kept)}")
+
+        total_runs += 1
+        if kept:
+            consistent_runs += 1
+        reliability = calculate_reliability(consistent_runs, total_runs)
+        print_report(kept, reliability)
+
+    except Exception as e:
+        err = str(e)
+        print(f"\nERROR: {err}")
+        if debug:
+            import traceback
+            traceback.print_exc()
+        print()
+        if "CUDA" in err or "shared object" in err or "llama runner" in err:
+            print("This looks like a GPU / CUDA error. Recovery steps:")
+            print("  1. Stop Ollama:           ollama stop")
+            print("  2. Restart it:            ollama serve")
+            print("  3. Confirm GPU is free:   nvidia-smi  (no leftover process)")
+            print("  4. Retry the command")
+            print()
+            print("If it still fails, switch single_agent.SINGLE_MODEL to a")
+            print("smaller fallback:")
+            print("  ollama/llama3.2:latest   (~2.0 GB)")
+            print("  ollama/phi4-mini:latest  (~2.5 GB)")
+            print("  ollama/qwen2.5:3b        (~1.9 GB)")
+        elif "connection" in err.lower() or "10061" in err:
+            print("Ollama is not reachable. Recovery steps:")
+            print("  1. ollama serve     (in a separate terminal)")
+            print("  2. Wait until 'Listening on 127.0.0.1:11434'")
+            print("  3. Retry the command")
+        elif "not found" in err.lower():
+            print("Baseline model not installed. Pull it with:")
+            print("  ollama pull mistral")
+            print("(or whichever model single_agent.SINGLE_MODEL points to)")
+        else:
+            print("Make sure:")
+            print("  1. ollama serve is running")
+            print("  2. The baseline model is installed")
+            print("     (see SINGLE_MODEL in single_agent.py)")
+
+
 if __name__ == "__main__":
 
-    args     = [a for a in sys.argv[1:] if a != "--debug"]
-    debug    = "--debug" in sys.argv[1:]
+    flags    = {"--debug", "--single", "--no-arbitration"}
+    args     = [a for a in sys.argv[1:] if a not in flags]
+    debug    = "--debug"          in sys.argv[1:]
+    single   = "--single"         in sys.argv[1:]
+    no_arb   = "--no-arbitration" in sys.argv[1:]
     filename = args[0] if args else DEFAULT_TEST_FILE
 
     if not os.path.isfile(filename):
         print(f"ERROR: file not found: {filename}")
         print()
-        print("Usage: python main.py [path-to-code-file] [--debug]")
+        print("Usage: python main.py [path-to-code-file] [flags]")
         print(f"       (defaults to {DEFAULT_TEST_FILE} when no file is given)")
+        print()
+        print("Flags (mutually exclusive baselines):")
+        print("  --single           = single-agent baseline (one model)")
+        print("  --no-arbitration   = 3 agents but skip the WAS >=0.6 filter")
+        print("  --debug            = dump raw agent output + full traceback")
         print()
         available = list_available_test_files()
         if available:
@@ -188,4 +276,7 @@ if __name__ == "__main__":
         test_code = f.read()
 
     print(f"File     : {filename}")
-    review_code(test_code, debug=debug)
+    if single:
+        review_code_single(test_code, debug=debug)
+    else:
+        review_code(test_code, debug=debug, no_arbitration=no_arb)

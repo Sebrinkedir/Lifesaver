@@ -1,10 +1,6 @@
 from crewai import Agent, LLM
 from bandit_tool import bandit_scanner
 
-# max_tokens caps each LLM response so an agent (especially deepseek-r1
-# with its <think> reasoning blocks) cannot generate indefinitely.
-# timeout gives the slowest model some headroom past litellm's 600s
-# default before it gives up.
 llm_security = LLM(
     model="ollama/llama3.1:8b",
     base_url="http://localhost:11434",
@@ -25,8 +21,6 @@ llm_logic = LLM(
     model="ollama/deepseek-r1:7b",
     base_url="http://localhost:11434",
     temperature=0.1,
-    # deepseek-r1 emits long <think> blocks before answering; give it
-    # room to reason but still bound the worst case.
     max_tokens=6144,
     timeout=1200,
 )
@@ -39,7 +33,7 @@ security_agent = Agent(
         "For other languages use your own expertise — do NOT use Bandit.\n\n"
         "Report each finding in this EXACT format:\n"
         "ISSUE: [description]\n"
-        "SEVERITY: HIGH or MEDIUM or LOW\n"
+        "SEVERITY: Critical or Moderate or Minor\n"
         "CONFIDENCE: [0.0 to 1.0]\n"
         "LINE: [number]\n"
         "REASON: [why dangerous]\n\n"
@@ -65,7 +59,7 @@ performance_agent = Agent(
         "Do NOT report security issues — only performance problems.\n\n"
         "Report each finding in this EXACT format:\n"
         "ISSUE: [description]\n"
-        "SEVERITY: HIGH or MEDIUM or LOW\n"
+        "SEVERITY: Critical or Moderate or Minor\n"
         "CONFIDENCE: [0.0 to 1.0]\n"
         "LINE: [number]\n"
         "REASON: [why slow]\n\n"
@@ -97,7 +91,7 @@ logic_agent = Agent(
         "- Off by one errors\n\n"
         "Report each finding in this EXACT format:\n"
         "ISSUE: [description]\n"
-        "SEVERITY: HIGH or MEDIUM or LOW\n"
+        "SEVERITY: Critical or Moderate or Minor\n"
         "CONFIDENCE: [0.0 to 1.0]\n"
         "LINE: [number]\n"
         "REASON: [what code does vs should do]\n\n"

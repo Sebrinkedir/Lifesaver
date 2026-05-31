@@ -1,10 +1,3 @@
-// LifeSaver web UI — WebSocket client + chat renderer
-//
-// Backend events handled:
-//   user_echo, system, scan_start,
-//   agent_start, agent_findings, agent_error,
-//   scan_complete, chat_open, chat_closed,
-//   agent_typing, agent_reply
 
 const chat       = document.getElementById("chat");
 const form       = document.getElementById("composer");
@@ -12,8 +5,6 @@ const input      = document.getElementById("cmdInput");
 const sendBtn    = document.getElementById("sendBtn");
 const connStatus = document.getElementById("connStatus");
 
-// Structured log of everything that shows up in the chat — used to build
-// the PDF on demand. Filled in handle() below as events arrive.
 const conversationLog = [];
 
 const AGENT_LABELS = {
@@ -23,21 +14,21 @@ const AGENT_LABELS = {
 };
 
 const SEV_COLOR = {
-  HIGH:   "#ef4444",
-  MEDIUM: "#f59e0b",
-  LOW:    "#10b981",
+  CRITICAL: "#ef4444",
+  MODERATE: "#f59e0b",
+  MINOR:    "#10b981",
+  HIGH:     "#ef4444",
+  MEDIUM:   "#f59e0b",
+  LOW:      "#10b981",
 };
 
 const DEFAULT_PLACEHOLDER = "python main.py test_php.php";
-// Cleared once a conversation is open — the hint bubble has the agent
-// prefix list; the input itself stays free of suggestions.
 const CHAT_PLACEHOLDER    = "";
 
 let ws;
-let activeAgentBubble = null;  // findings bubble being filled by the current agent
-let typingBubble      = null;  // current 'thinking…' bubble for a follow-up reply
+let activeAgentBubble = null;  
+let typingBubble      = null;  
 
-// ---------- WebSocket bootstrap ----------
 
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -70,7 +61,6 @@ function connect() {
 
 connect();
 
-// ---------- form submit ----------
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -80,7 +70,6 @@ form.addEventListener("submit", (e) => {
 function send(cmd) {
   if (!cmd) return;
 
-  // Client-only commands: handled in the browser, never sent to the server.
   const lower = cmd.toLowerCase();
   if (lower === "pdf" || lower === "/pdf" || lower === "download" || lower === "/download") {
     input.value = "";
@@ -95,13 +84,10 @@ function send(cmd) {
 }
 
 function handlePdfCommand(cmd) {
-  // Echo the command into the chat AND the log so subsequent PDFs include it.
   renderUser(cmd);
   conversationLog.push({ ts: new Date(), type: "user_echo", command: cmd });
 
   try {
-    // downloadPdf returns true on success, false if the library is missing
-    // (it has already shown its own system message in that case).
     if (downloadPdf()) {
       renderSystem("PDF generated — check your browser's Downloads folder.");
     }
@@ -120,11 +106,8 @@ function setChatMode(open) {
   input.placeholder = open ? CHAT_PLACEHOLDER : DEFAULT_PLACEHOLDER;
 }
 
-// ---------- event dispatch ----------
 
 function handle(msg) {
-  // Log first so the PDF captures everything the user saw (including
-  // intermediate states like typing, which we skip in the PDF later).
   logEvent(msg);
 
   switch (msg.type) {
@@ -144,12 +127,10 @@ function handle(msg) {
 }
 
 function logEvent(msg) {
-  // Skip noisy intermediate events that have no useful PDF representation.
   if (msg.type === "agent_typing" || msg.type === "agent_start") return;
   conversationLog.push({ ts: new Date(), ...msg });
 }
 
-// ---------- renderers ----------
 
 function appendBubble(extraClass = "") {
   const div = document.createElement("div");
@@ -264,8 +245,6 @@ function renderChatOpen({ hint_title, hint_lines, hint }) {
   setChatMode(true);
   const b = appendBubble("system chat-hint");
 
-  // New structured form: hint_title + hint_lines[]. Falls back to legacy
-  // single 'hint' string with newlines if a server still sends that.
   const title = hint_title || "Conversation open";
   let lines = Array.isArray(hint_lines) ? hint_lines : null;
   if (!lines && typeof hint === "string") lines = hint.split("\n");
@@ -286,14 +265,11 @@ function renderChatOpen({ hint_title, hint_lines, hint }) {
 function renderChatClosed(_msg) {
   setChatMode(false);
 
-  // Wipe everything: DOM, in-page state, and the PDF log so the next
-  // download doesn't include the previous session.
   chat.innerHTML = "";
   activeAgentBubble = null;
   typingBubble = null;
   conversationLog.length = 0;
 
-  // Drop a fresh welcome bubble so the chat is usable right away.
   const b = appendBubble("system intro");
   b.innerHTML = `
     <p>Conversation closed. Type a scan command to start a new one &mdash; for example:</p>
@@ -302,7 +278,7 @@ function renderChatClosed(_msg) {
 }
 
 function renderFinding(f) {
-  const sev   = (f.severity || "LOW").toUpperCase();
+  const sev   = (f.severity || "MINOR").toUpperCase();
   const color = SEV_COLOR[sev] || SEV_COLOR.LOW;
   const conf  = Number.isFinite(f.confidence) ? Number(f.confidence) : 0;
   const pct   = Math.max(0, Math.min(100, Math.round(conf * 100)));
@@ -394,7 +370,6 @@ function renderScanComplete({ file, totals, reliability, kept_findings }) {
   }
 }
 
-// ---------- helpers ----------
 
 function escapeHtml(s) {
   if (s == null) return "";
@@ -406,8 +381,6 @@ function escapeHtml(s) {
     .replace(/'/g, "&#39;");
 }
 
-// Render a tiny subset of markdown safely: paragraphs, code spans, and
-// fenced ``` blocks. Everything else is plain escaped text.
 function renderMarkdownish(text) {
   const fences = [];
   const fenced = text.replace(/```([a-zA-Z]*)\n([\s\S]*?)```/g, (_m, _lang, code) => {
@@ -425,7 +398,6 @@ function renderMarkdownish(text) {
 
 setChatMode(false);
 
-// ---------- PDF export ----------
 
 const AGENT_COLOR_RGB = {
   security:    [239, 68, 68],
@@ -434,9 +406,12 @@ const AGENT_COLOR_RGB = {
 };
 
 const SEV_RGB = {
-  HIGH:   [239, 68, 68],
-  MEDIUM: [245, 158, 11],
-  LOW:    [16, 185, 129],
+  CRITICAL: [239, 68, 68],
+  MODERATE: [245, 158, 11],
+  MINOR:    [16, 185, 129],
+  HIGH:     [239, 68, 68],
+  MEDIUM:   [245, 158, 11],
+  LOW:      [16, 185, 129],
 };
 
 function downloadPdf() {
@@ -454,7 +429,6 @@ function downloadPdf() {
   const pageH = doc.internal.pageSize.getHeight();
   const margin = 40;
 
-  // Cursor state, mutated by the helpers below.
   const cursor = { y: margin };
   const ensureSpace = (need) => {
     if (cursor.y + need > pageH - margin) {
@@ -474,7 +448,6 @@ function downloadPdf() {
     }
   };
 
-  // ----- header -----
   doc.setFont("helvetica", "bold").setFontSize(20).setTextColor(0, 0, 0);
   doc.text("LifeSaver — Conversation Export", margin, cursor.y);
   cursor.y += 22;
@@ -546,7 +519,7 @@ function renderPdfEntry(doc, e, ctx) {
       doc.setFont("helvetica", "normal").setFontSize(9); black();
       for (const f of (e.findings || [])) {
         ensureSpace(40);
-        const sevRgb = SEV_RGB[(f.severity || "LOW").toUpperCase()] || [120, 120, 120];
+        const sevRgb = SEV_RGB[(f.severity || "MINOR").toUpperCase()] || [120, 120, 120];
         doc.setFont("helvetica", "bold"); color(sevRgb);
         writeText(`[${(f.severity || "?").toUpperCase()}] ${f.description || ""}`,
                   { x: margin + 12, lh: 12 });
@@ -618,7 +591,6 @@ function renderPdfEntry(doc, e, ctx) {
       break;
     }
     default:
-      // agent_typing etc. — filtered out in logEvent.
       break;
   }
 }

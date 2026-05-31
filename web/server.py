@@ -26,8 +26,6 @@ import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
-# Make sibling modules (agents, tasks, arbitration, main) importable
-# regardless of CWD when launched via `uvicorn web.server:app`.
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -79,8 +77,6 @@ OLLAMA_BASE = "http://localhost:11434"
 
 _CODE_EXTS = (".py", ".js", ".java", ".php", ".cpp", ".cs", ".go", ".rb", ".c")
 
-# Prefix that selects which agent answers, e.g. "security: explain #1".
-# Accepts ':', '>', or '-' as the separator; case-insensitive.
 _CHAT_PREFIX_RE = re.compile(
     r'^\s*(security|performance|logic)\s*[:>\-]\s*(.+)$',
     re.IGNORECASE | re.DOTALL,
@@ -105,6 +101,12 @@ def _parse_command(cmd: str) -> Optional[str]:
         if bare.lower().endswith(_CODE_EXTS) or bare.startswith("test_"):
             candidate = bare
     return candidate
+
+
+def _has_flag(cmd: str, flag: str) -> bool:
+    """True if the chat command contains the given flag as a whole token."""
+    return any(t.lower() == flag.lower()
+               for t in cmd.split())
 
 
 def _parse_chat_prefix(cmd: str) -> Tuple[Optional[str], str]:
@@ -182,9 +184,6 @@ async def _ask_agent_followup(agent_id: str, code: str, language: str,
     messages.extend(history)
     messages.append({"role": "user", "content": question})
 
-    # deepseek-r1's <think> blocks can balloon; the others are tamer but
-    # use the same caps for consistency. timeout extends litellm's 600s
-    # default so a slow first token doesn't kill the call.
     max_tokens = 6144 if agent_id == "logic" else 4096
     timeout    = 1200 if agent_id == "logic" else 900
 
@@ -227,9 +226,93 @@ class SessionState:
         self.chat_open: bool = False
 
 
+async def _run_single_agent_baseline(ws: WebSocket,
+                                     session: SessionState) -> None:
+    """Run the single-agent baseline and emit findings + scan_complete."""
+    from single_agent import scan_single, SINGLE_MODEL
+
+    await ws.send_json({
+        "type": "agent_start",
+        "step": 1, "total": 1,
+        "agent": "single",
+        "model": SINGLE_MODEL.replace("ollama/", "") + " (baseline)",
+    })
+
+    try:
+        findings = await asyncio.to_thread(
+            scan_single, session.code, session.language,
+        )
+    except Exception as e:
+        await ws.send_json({
+            "type": "agent_error",
+            "agent": "single",
+            "message": str(e),
+        })
+        findings = []
+
+    by_cat: dict = {"security": [], "performance": [], "logic": []}
+    for f in findings:
+        cat = f.get("agent", "logic")
+        by_cat.setdefault(cat, []).append(f)
+    session.findings_by_agent = by_cat
+
+    for cat in ("security", "performance", "logic"):
+        await ws.send_json({
+            "type": "agent_findings",
+            "agent": cat,
+            "model": f"{SINGLE_MODEL.replace('ollama/', '')} (baseline)",
+            "count": len(by_cat[cat]),
+            "findings": by_cat[cat],
+        })
+
+    was_results = calculate_was(findings)
+    kept = filter_findings(was_results)
+    reliability = calculate_reliability(1 if kept else 0, 1)
+    counts = {cat: len(by_cat[cat]) for cat in ("security", "performance", "logic")}
+
+    await ws.send_json({
+        "type": "scan_complete",
+        "file": session.file,
+        "language": session.language,
+        "mode": "single",
+        "totals": {
+            **counts,
+            "total": len(findings),
+            "kept": len(kept),
+        },
+        "reliability": reliability,
+        "kept_findings": kept,
+    })
+
+    session.chat_open = True
+    await ws.send_json({
+        "type": "chat_open",
+        "hint_title": "Conversation open (single-agent baseline)",
+        "hint_lines": [
+            "Ask the single baseline agent by typing one of:",
+            "  • security: <your question>",
+            "  • performance: <your question>",
+            "  • logic: <your question>",
+            "(all three route to the same single agent in baseline mode)",
+            "",
+            "Type `pdf` at any time to download the conversation as a PDF.",
+            "Type `close` to end the conversation.",
+        ],
+    })
+
+
 async def _start_scan(ws: WebSocket, session: SessionState,
-                      filename: str) -> None:
-    """Resolve file, run all 3 agents back-to-back, open the chat."""
+                      filename: str, single: bool = False,
+                      no_arbitration: bool = False) -> None:
+    """Resolve file, run the configured pipeline, open the chat.
+
+    Three modes:
+      - default        : full 3-agent LifeSaver (WAS filter applied)
+      - single=True    : single-agent baseline (qwen2.5-coder)
+      - no_arbitration : 3 agents, WAS filter skipped (raw multi-agent baseline)
+
+    `single` takes precedence over `no_arbitration` if both are set.
+    """
     target = (
         Path(filename) if os.path.isabs(filename) else (ROOT / filename)
     ).resolve()
@@ -250,15 +333,21 @@ async def _start_scan(ws: WebSocket, session: SessionState,
     session.language = language
     session.tasks = create_tasks(code)
 
+    mode_label = ("single" if single
+                  else "no-arbitration" if no_arbitration
+                  else "three")
     await ws.send_json({
         "type": "scan_start",
         "file": target.name,
         "language": language,
         "lines": len(code.strip().splitlines()),
+        "mode": mode_label,
     })
 
-    # Run all 3 agents in sequence, streaming each agent's findings as they
-    # complete so the user sees progress.
+    if single:
+        await _run_single_agent_baseline(ws, session)
+        return
+
     for idx, (aid, agent, model_label) in enumerate(AGENT_INFO):
         await ws.send_json({
             "type": "agent_start",
@@ -289,12 +378,11 @@ async def _start_scan(ws: WebSocket, session: SessionState,
             "findings": findings,
         })
 
-    # Final summary card.
     all_findings: list = []
     for aid, _, _ in AGENT_INFO:
         all_findings.extend(session.findings_by_agent.get(aid, []))
     was_results = calculate_was(all_findings)
-    kept = filter_findings(was_results)
+    kept = was_results if no_arbitration else filter_findings(was_results)
     reliability = calculate_reliability(1 if kept else 0, 1)
 
     counts = {aid: len(session.findings_by_agent.get(aid, []))
@@ -304,6 +392,7 @@ async def _start_scan(ws: WebSocket, session: SessionState,
         "type": "scan_complete",
         "file": session.file,
         "language": session.language,
+        "mode": mode_label,
         "totals": {
             **counts,
             "total": len(all_findings),
@@ -394,13 +483,14 @@ async def ws_scan(ws: WebSocket) -> None:
                 })
                 continue
 
-            # 1. Scan command (always wins) — reset state and rescan.
             target = _parse_command(command)
             if target is not None:
-                await _start_scan(ws, session, target)
+                single = _has_flag(command, "--single")
+                no_arb = _has_flag(command, "--no-arbitration")
+                await _start_scan(ws, session, target,
+                                  single=single, no_arbitration=no_arb)
                 continue
 
-            # 2. 'close' / 'exit conversation' etc. ends the chat session.
             cmd_norm = " ".join(command.lower().split())
             if cmd_norm in (
                 "close", "/close", "end", "exit",
@@ -421,7 +511,6 @@ async def ws_scan(ws: WebSocket) -> None:
                     })
                 continue
 
-            # 3. If chat is open, route by prefix to the chosen agent.
             if session.chat_open:
                 agent_id, question = _parse_chat_prefix(command)
                 if agent_id is None:
@@ -437,7 +526,6 @@ async def ws_scan(ws: WebSocket) -> None:
                 await _handle_question(ws, session, agent_id, question)
                 continue
 
-            # 4. Idle and no recognised command.
             await ws.send_json({
                 "type": "system",
                 "message": "No active scan. Try: python main.py test_php.php",
